@@ -31,6 +31,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 from rsl_rl.modules import ActorCritic
 from rsl_rl.storage import RolloutStorage
@@ -52,8 +53,10 @@ class PPO:
                  schedule="fixed",
                  desired_kl=0.01,
                  device='cpu',
+                 #new hjb parameters
+                 hjb_coef: float = 0.1,
                  ):
-
+        print("hjb coef:", hjb_coef)
         self.device = device
 
         self.desired_kl = desired_kl
@@ -77,6 +80,11 @@ class PPO:
         self.lam = lam
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
+        self.dt = 0.02
+
+        # HJB parameters
+        self.hjb_coef = hjb_coef
+        self.rho = -torch.log(torch.tensor(gamma)) / self.dt
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
         self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
@@ -120,13 +128,14 @@ class PPO:
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
+        mean_hjb_loss = 0.0
+
         if self.actor_critic.is_recurrent:
             generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         else:
             generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        for obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
-            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch in generator:
-
+        for (obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
+            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, rewards_batch, dynamics_batch) in generator:
 
                 self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
@@ -168,6 +177,29 @@ class PPO:
                 else:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
 
+                hjb_loss = torch.tensor(0.0, device=self.device)
+                if self.hjb_coef > 0.0 and dynamics_batch is not None:
+                    # Enable gradient through critic_obs_batch
+                    critic_obs_batch.requires_grad_(True)
+                    values_grad = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch,
+                                                            hidden_states=hid_states_batch[1])
+                    # ∂V/∂x
+                    value_derivative = torch.autograd.grad(values_grad, critic_obs_batch,
+                                                        grad_outputs=torch.ones_like(values_grad),
+                                                        create_graph=True, retain_graph=True)[0]
+                    critic_obs_batch.requires_grad_(False)
+                    # V_x · f
+                    B, obs_dim = value_derivative.shape
+                    value_derivative_dot_f = torch.bmm(value_derivative.view(B, 1, obs_dim),
+                                                    dynamics_batch.view(B, obs_dim, 1)).view(-1)
+                    # ρ V vs r + V_x f
+                    target = self.rho.to(self.device) * values_grad.view(-1)
+                    rhs = value_derivative_dot_f + rewards_batch.view(-1)
+                    hjb_loss = F.mse_loss(target, rhs)
+                mean_hjb_loss += hjb_loss.item()
+                
+                
+
                 loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
                 # Gradient step
@@ -181,7 +213,9 @@ class PPO:
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
+        mean_hjb_loss /= num_updates
+        #print("HJB loss:", mean_hjb_loss)
         mean_surrogate_loss /= num_updates
         self.storage.clear()
 
-        return mean_value_loss, mean_surrogate_loss
+        return mean_value_loss, mean_surrogate_loss, mean_hjb_loss
