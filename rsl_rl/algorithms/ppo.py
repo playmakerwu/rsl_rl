@@ -233,7 +233,7 @@ class PPO:
                 
                 
 
-                loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+                loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean() + self.hjb_coef * hjb_loss
 
                 # Gradient step
                 self.optimizer.zero_grad()
