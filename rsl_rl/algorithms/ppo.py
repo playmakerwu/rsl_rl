@@ -125,6 +125,70 @@ class PPO:
         last_values= self.actor_critic.evaluate(last_critic_obs).detach()
         self.storage.compute_returns(last_values, self.gamma, self.lam)
 
+    def compute_srb_dynamics(self, obs, approximated_dynamics):
+        lin_vel_scales = 1
+        ang_vel_scales = 1
+        commands_scales = 1
+        base_lin_vel = obs[:, :3] / lin_vel_scales
+        base_ang_vel = obs[:, 3:6] / ang_vel_scales
+        projected_gravity = obs[:, 6:9]
+        commands = obs[:, 9:12] / commands_scales
+        num_envs = obs.shape[0]
+        actions = obs[:, -12:].clone().view(num_envs, 4, 3)
+
+        # base weight = m_base + m_motor * 8
+        base_weight = 1 # from config
+
+        # compute base linear velocity
+        assert base_lin_vel.shape == (num_envs, 3), "Base linear velocity shape mismatch"
+        contact_indicator = torch.zeros((num_envs, 4, 3)) # inference from contact force in legged_gym 
+        base_lin_vel_dot = -torch.cross(base_ang_vel, base_lin_vel, dim=1)
+        total_contact_force = actions * contact_indicator
+        total_contact_force = torch.sum(total_contact_force, dim=1) 
+        base_lin_vel_dot += total_contact_force / base_weight
+
+        # compute base angular velocity
+        # inertia needs to update Ixx, Iyy, Izz according to leg configuration
+        inertia = torch.zeros((num_envs, 3, 3), device=self.device) # from config
+        quat = torch.zeros((num_envs, 4), device=self.device) # from legged_gym
+        Rwb = self.quaternion_to_matrix(quat)
+        Rwb_T = torch.transpose(Rwb, 1, 2)
+        Rwb_T_expanded = Rwb_T.unsqueeze(1).repeat(1, 4, 1, 1) # (num_envs, 4, 3, 3)
+
+
+    def quaternion_to_matrix(q):
+        # q: (..., 4) with (w, x, y, z) ordering
+        w, x, y, z = q.unbind(-1)
+        B = q.shape[:-1]
+
+        ww = w * w
+        xx = x * x
+        yy = y * y
+        zz = z * z
+
+        wx = w * x
+        wy = w * y
+        wz = w * z
+
+        xy = x * y
+        xz = x * z
+        yz = y * z
+
+        R = torch.empty(*B, 3, 3, device=q.device, dtype=q.dtype)
+        R[..., 0, 0] = ww + xx - yy - zz
+        R[..., 0, 1] = 2 * (xy - wz)
+        R[..., 0, 2] = 2 * (xz + wy)
+
+        R[..., 1, 0] = 2 * (xy + wz)
+        R[..., 1, 1] = ww - xx + yy - zz
+        R[..., 1, 2] = 2 * (yz - wx)
+
+        R[..., 2, 0] = 2 * (xz - wy)
+        R[..., 2, 1] = 2 * (yz + wx)
+        R[..., 2, 2] = ww - xx - yy + zz
+        return R
+
+
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
@@ -176,6 +240,9 @@ class PPO:
                     value_loss = torch.max(value_losses, value_losses_clipped).mean()
                 else:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
+
+                # HJB loss
+                real_dynamic = self.compute_srb_dynamics(obs_batch, dynamics_batch)
 
                 hjb_loss = torch.tensor(0.0, device=self.device)
                 if self.hjb_coef > 0.0 and dynamics_batch is not None:
