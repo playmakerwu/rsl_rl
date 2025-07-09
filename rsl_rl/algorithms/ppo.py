@@ -84,7 +84,7 @@ class PPO:
 
         # HJB parameters
         self.hjb_coef = hjb_coef
-        self.rho = -torch.log(torch.tensor(gamma)) / self.dt
+        self.rho = -torch.log(torch.tensor(gamma))
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
         self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
@@ -213,14 +213,14 @@ class PPO:
                 hjb_loss = torch.tensor(0.0, device=self.device)
                 if self.hjb_coef > 0.0 and dynamics_batch is not None:
                     # Enable gradient through critic_obs_batch
-                    critic_obs_batch.requires_grad_(True)
-                    values_grad = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch,
+                    obs_batch.requires_grad_(True)
+                    values_grad = self.actor_critic.evaluate(obs_batch, masks=masks_batch,
                                                             hidden_states=hid_states_batch[1])
                     # ∂V/∂x
                     value_derivative = torch.autograd.grad(values_grad, critic_obs_batch,
                                                         grad_outputs=torch.ones_like(values_grad),
                                                         create_graph=True, retain_graph=True)[0]
-                    critic_obs_batch.requires_grad_(False)
+                    obs_batch.requires_grad_(False)
                     # V_x · f
                     B, obs_dim = value_derivative.shape
                     value_derivative_dot_f = torch.bmm(value_derivative.view(B, 1, obs_dim),
