@@ -220,7 +220,6 @@ class PPO:
                     value_derivative = torch.autograd.grad(values_grad, critic_obs_batch,
                                                         grad_outputs=torch.ones_like(values_grad),
                                                         create_graph=True, retain_graph=True)[0]
-                    obs_batch.requires_grad_(False)
                     # V_x · f
                     B, obs_dim = value_derivative.shape
                     value_derivative_dot_f = torch.bmm(value_derivative.view(B, 1, obs_dim),
