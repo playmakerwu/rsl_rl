@@ -84,7 +84,7 @@ class PPO:
 
         # HJB parameters
         self.hjb_coef = hjb_coef
-        self.rho = -torch.log(torch.tensor(gamma)) / self.dt
+        self.rho = -torch.log(torch.tensor(gamma))
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
         self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
