@@ -86,6 +86,10 @@ class PPO:
         self.hjb_coef = hjb_coef
         self.rho = -torch.log(torch.tensor(gamma))
 
+        # observation
+        self.prev_obs = None
+        self.prev_dones = None
+
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape):
         self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape, self.device)
 
@@ -99,6 +103,13 @@ class PPO:
         if self.actor_critic.is_recurrent:
             self.transition.hidden_states = self.actor_critic.get_hidden_states()
         # Compute the actions and values
+
+        if self.prev_obs is not None:
+            fd = (obs - self.prev_obs) / self.dt           
+            if self.prev_dones is not None:
+                fd[self.prev_dones] = 0.0
+            self.transition.dynamics = fd.detach()
+
         self.transition.actions = self.actor_critic.act(obs).detach()
         self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
         self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
@@ -107,7 +118,7 @@ class PPO:
         # need to record obs and critic_obs before env.step()
         self.transition.observations = obs
         self.transition.critic_observations = critic_obs
-        
+        self.prev_obs = obs.detach()
         return self.transition.actions
     
     def process_env_step(self, rewards, dones, infos, srb_dynamics=None):
@@ -120,9 +131,11 @@ class PPO:
             self.transition.srb_dynamics = srb_dynamics.clone()
 
         # Record the transition
+        self.prev_dones = dones.clone()
         self.storage.add_transitions(self.transition)
         self.transition.clear()
         self.actor_critic.reset(dones)
+
     
     def compute_returns(self, last_critic_obs):
         last_values= self.actor_critic.evaluate(last_critic_obs).detach()
@@ -174,8 +187,8 @@ class PPO:
         for (obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
             old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, rewards_batch, dynamics_batch, srb_dynamics_batch) in generator:
             # Normalize advantages
-                print("srb_dynamics_batch:", srb_dynamics_batch[5])
-                print("dynamics_batch:", dynamics_batch[5][:9])
+                #print("srb_dynamics_batch:", srb_dynamics_batch[5])
+                #print("dynamics_batch:", dynamics_batch[5][:9])
                 self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
                 value_batch = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
