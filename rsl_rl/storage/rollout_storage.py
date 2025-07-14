@@ -48,7 +48,6 @@ class RolloutStorage:
             self.action_sigma = None
             self.hidden_states = None
             self.rewards   = None
-            self.dynamics  = None
             self.srb_dynamics = None
         
         def clear(self):
@@ -111,7 +110,11 @@ class RolloutStorage:
         self.mu[self.step].copy_(transition.action_mean)
         self.sigma[self.step].copy_(transition.action_sigma)
         self._save_hidden_states(transition.hidden_states)
+        if transition.srb_dynamics is not None:      # ★★
+            self.srb_dynamics[self.step].copy_(transition.srb_dynamics)
         self.step += 1
+
+
 
     def _save_hidden_states(self, hidden_states):
         if hidden_states is None or hidden_states==(None, None):
@@ -179,6 +182,7 @@ class RolloutStorage:
 
         rewards_flat   = self.rewards.flatten(0, 1)          
         dynamics_flat  = self.dynamics.flatten(0, 1) 
+        srb_dyn_flat = self.srb_dynamics.flatten(0, 1)
 
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
@@ -199,7 +203,7 @@ class RolloutStorage:
                 rewards_batch    = rewards_flat[batch_idx]       
                 dynamics_batch   = dynamics_flat[batch_idx]
                 yield obs_batch, critic_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, \
-                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None, rewards_batch, dynamics_batch
+                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None, rewards_batch, dynamics_batch, srb_dyn_flat[batch_idx]
 
     # for RNNs only
     def reccurent_mini_batch_generator(self, num_mini_batches, num_epochs=8):
