@@ -49,17 +49,19 @@ class RolloutStorage:
             self.hidden_states = None
             self.rewards   = None
             self.dynamics  = None
+            self.srb_dynamics = None
         
         def clear(self):
             self.__init__()
 
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, privileged_obs_shape, actions_shape, device='cpu'):
+    def __init__(self, num_envs, num_transitions_per_env, obs_shape, privileged_obs_shape, actions_shape, srb_shape, device='cpu'):
 
         self.device = device
 
         self.obs_shape = obs_shape
         self.privileged_obs_shape = privileged_obs_shape
         self.actions_shape = actions_shape
+        self.srb_shape = srb_shape
 
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
@@ -85,6 +87,8 @@ class RolloutStorage:
         # For HJB
         self.dynamics = torch.zeros(num_transitions_per_env,
                              num_envs, obs_shape[0], device=self.device)
+        self.srb_dynamics = torch.zeros(num_transitions_per_env,
+                             num_envs, self.srb_shape, device=self.device)
 
         # rnn
         self.saved_hidden_states_a = None

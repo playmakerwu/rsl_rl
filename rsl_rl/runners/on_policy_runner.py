@@ -67,9 +67,10 @@ class OnPolicyRunner:
         self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
+        self.srb_shape = 9  # assuming all srb dynamics have the same shape
 
         # init storage and model
-        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_actions])
+        self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_actions], self.srb_shape)
 
         # Log
         self.log_dir = log_dir
@@ -105,10 +106,10 @@ class OnPolicyRunner:
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, critic_obs)
-                    obs, privileged_obs, rewards, dones, infos = self.env.step(actions)
+                    obs, privileged_obs, rewards, dones, infos, srb = self.env.step(actions)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
-                    self.alg.process_env_step(rewards, dones, infos)
+                    obs, critic_obs, rewards, dones, srb = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device), srb.to(self.device)
+                    self.alg.process_env_step(rewards, dones, infos, srb)
                     
                     if self.log_dir is not None:
                         # Book keeping

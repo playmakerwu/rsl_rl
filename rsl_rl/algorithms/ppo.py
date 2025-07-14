@@ -86,8 +86,8 @@ class PPO:
         self.hjb_coef = hjb_coef
         self.rho = -torch.log(torch.tensor(gamma))
 
-    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
-        self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
+    def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape):
+        self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape, self.device)
 
     def test_mode(self):
         self.actor_critic.test()
@@ -109,12 +109,14 @@ class PPO:
         self.transition.critic_observations = critic_obs
         return self.transition.actions
     
-    def process_env_step(self, rewards, dones, infos):
+    def process_env_step(self, rewards, dones, infos, srb_dynamics=None):
         self.transition.rewards = rewards.clone()
         self.transition.dones = dones
         # Bootstrapping on time outs
         if 'time_outs' in infos:
             self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
+        if srb_dynamics is not None:
+            self.transition.srb_dynamics = srb_dynamics.clone()
 
         # Record the transition
         self.storage.add_transitions(self.transition)
@@ -162,14 +164,16 @@ class PPO:
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_hjb_loss = 0.0
+        
 
         if self.actor_critic.is_recurrent:
             generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         else:
             generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         for (obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
-            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, rewards_batch, dynamics_batch) in generator:
-
+            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, rewards_batch, dynamics_batch, srb_dynamics_batch) in generator:
+            # Normalize advantages
+                print("srb_dynamics_batch.shape:", srb_dynamics_batch.shape)
                 self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
                 value_batch = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
