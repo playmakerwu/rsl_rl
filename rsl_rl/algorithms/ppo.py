@@ -211,7 +211,9 @@ class PPO:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
 
                 hjb_loss = torch.tensor(0.0, device=self.device)
+                print("dynamics_batch", dynamics_batch[5][:9])
                 if self.hjb_coef > 0.0 and dynamics_batch is not None:
+                    
                     # Enable gradient through critic_obs_batch
                     critic_obs_batch.requires_grad_(True)
                     values_grad = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch,
