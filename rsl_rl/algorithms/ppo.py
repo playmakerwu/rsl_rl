@@ -141,39 +141,6 @@ class PPO:
         last_values= self.actor_critic.evaluate(last_critic_obs).detach()
         self.storage.compute_returns(last_values, self.gamma, self.lam)
 
-    def quaternion_to_matrix(q):
-        # q: (..., 4) with (w, x, y, z) ordering
-        w, x, y, z = q.unbind(-1)
-        B = q.shape[:-1]
-
-        ww = w * w
-        xx = x * x
-        yy = y * y
-        zz = z * z
-
-        wx = w * x
-        wy = w * y
-        wz = w * z
-
-        xy = x * y
-        xz = x * z
-        yz = y * z
-
-        R = torch.empty(*B, 3, 3, device=q.device, dtype=q.dtype)
-        R[..., 0, 0] = ww + xx - yy - zz
-        R[..., 0, 1] = 2 * (xy - wz)
-        R[..., 0, 2] = 2 * (xz + wy)
-
-        R[..., 1, 0] = 2 * (xy + wz)
-        R[..., 1, 1] = ww - xx + yy - zz
-        R[..., 1, 2] = 2 * (yz - wx)
-
-        R[..., 2, 0] = 2 * (xz - wy)
-        R[..., 2, 1] = 2 * (yz + wx)
-        R[..., 2, 2] = ww - xx - yy + zz
-        return R
-
-
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
@@ -187,7 +154,7 @@ class PPO:
         for (obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
             old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch, rewards_batch, dynamics_batch, srb_dynamics_batch) in generator:
             # Normalize advantages
-                #print("srb_dynamics_batch:", srb_dynamics_batch[5])
+                #print("fd_rsl", srb_dynamics_batch[5][:6])
                 #print("dynamics_batch:", dynamics_batch[5][:9])
                 self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
