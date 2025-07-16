@@ -197,7 +197,7 @@ class PPO:
                     value_loss = (returns_batch - value_batch).pow(2).mean()
 
                 hjb_loss = torch.tensor(0.0, device=self.device)
-                if self.hjb_coef > 0.0 and dynamics_batch is not None:
+                if self.hjb_coef > 0.0 and srb_dynamics_batch is not None:
                     # Enable gradient through critic_obs_batch
                     critic_obs_batch.requires_grad_(True)
                     values_grad = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch,
@@ -210,7 +210,7 @@ class PPO:
                     # V_x · f
                     B, obs_dim = value_derivative.shape
                     value_derivative_dot_f = torch.bmm(value_derivative.view(B, 1, obs_dim),
-                                                    dynamics_batch.view(B, obs_dim, 1)).view(-1)
+                                                    srb_dynamics_batch.view(B, obs_dim, 1)).view(-1)
                     # ρ V vs r + V_x f
                     target = self.rho.to(self.device) * values_grad.view(-1)
                     rhs = value_derivative_dot_f + rewards_batch.view(-1)
