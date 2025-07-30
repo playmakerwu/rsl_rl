@@ -68,8 +68,18 @@ class PPO:
         self.actor_critic.to(self.device)
         self.storage = None # initialized later
         self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=learning_rate)
-        self.actor_optimizer = optim.Adam(self.actor_critic.actor_parameters(), lr=learning_rate)
-        self.critic_optimizer = optim.Adam(self.actor_critic.critic_parameters(), lr=learning_rate)
+
+        _all_params = list(self.actor_critic.parameters())
+        self._actor_params  = _all_params[:9]   # std + 8 个 actor 层
+        self._critic_params = _all_params[9:]   # 8 个 critic 层
+        self.actor_critic.actor_parameters  = lambda: (p for p in self._actor_params)
+        self.actor_critic.critic_parameters = lambda: (p for p in self._critic_params)
+        self.actor_optimizer  = optim.Adam(self._actor_params,  lr=learning_rate)
+        self.critic_optimizer = optim.Adam(self._critic_params, lr=learning_rate)
+        
+        print("parameters")
+        for name, p in self.actor_critic.named_parameters():
+            print(f"{name:40s} shape={tuple(p.shape)} requires_grad={p.requires_grad}")
         self.transition = RolloutStorage.Transition()
 
         # PPO parameters
@@ -91,6 +101,8 @@ class PPO:
         # observation
         self.prev_obs = None
         self.prev_dones = None
+
+    
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape):
         self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, srb_shape, self.device)
